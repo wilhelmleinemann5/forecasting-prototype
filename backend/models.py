@@ -14,6 +14,7 @@ class Dataset(Base):
     filename = Column(String)
     upload_time = Column(DateTime, default=datetime.utcnow)
     schema_json = Column(Text)
+    column_mapping_json = Column(Text)  # Store the column mapping
     n_series = Column(Integer)
     n_observations = Column(Integer)
     

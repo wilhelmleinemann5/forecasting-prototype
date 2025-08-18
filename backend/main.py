@@ -39,9 +39,10 @@ async def root():
 async def upload_dataset(
     file: UploadFile = File(...),
     name: str = None,
+    column_mapping: str = None,
     db: Session = Depends(get_db)
 ):
-    """Upload and validate a CSV dataset"""
+    """Upload and validate a CSV dataset with optional column mapping"""
     
     # Use filename if name not provided
     if not name:
@@ -66,6 +67,7 @@ async def upload_dataset(
             name=name,
             filename=file.filename,
             schema_json=json.dumps(validation_result['dtypes']),
+            column_mapping_json=column_mapping or "{}",
             n_series=validation_result['series_stats'].get('n_series', 0),
             n_observations=validation_result['n_observations']
         )

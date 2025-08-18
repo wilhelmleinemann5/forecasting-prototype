@@ -34,13 +34,13 @@ def upload_dataset():
     uploaded_file = st.file_uploader(
         "Choose a CSV file", 
         type="csv",
-        help="Expected columns: timestamp, series_id, y, capacity (optional)"
+        help="Upload any CSV - you'll map columns to our schema in the next step"
     )
     
     if uploaded_file is not None:
         # Preview data
         df = pd.read_csv(uploaded_file)
-        st.subheader("Data Preview")
+        st.subheader("📋 Data Preview")
         st.dataframe(df.head(10))
         
         # Dataset info
@@ -50,8 +50,74 @@ def upload_dataset():
         with col2:
             st.metric("Columns", len(df.columns))
         with col3:
-            if 'series_id' in df.columns:
-                st.metric("Unique Series", df['series_id'].nunique())
+            st.metric("Date Range", f"{len(df)} observations")
+        
+        # Column Mapping Section
+        st.subheader("🔗 Column Mapping")
+        st.info("Map your CSV columns to our required schema. Leave optional fields as 'None' if not available.")
+        
+        available_columns = ['None'] + list(df.columns)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("**Required Columns:**")
+            timestamp_col = st.selectbox(
+                "📅 Timestamp Column", 
+                available_columns,
+                help="Date/datetime column for your time series"
+            )
+            series_id_col = st.selectbox(
+                "🏷️ Series ID Column", 
+                available_columns,
+                help="Identifier for each time series (e.g., route, product, location)"
+            )
+            target_col = st.selectbox(
+                "🎯 Target Variable (y)", 
+                available_columns,
+                help="The variable you want to forecast (e.g., demand, sales, bookings)"
+            )
+        
+        with col2:
+            st.markdown("**Optional Columns:**")
+            capacity_col = st.selectbox(
+                "📊 Capacity Column (optional)", 
+                available_columns,
+                help="Capacity constraint for alerts (leave as 'None' if not available)"
+            )
+            
+            # Show additional columns that will be included as features
+            other_cols = [col for col in df.columns if col not in [timestamp_col, series_id_col, target_col, capacity_col]]
+            if other_cols:
+                st.markdown("**Additional Features:**")
+                st.info(f"These columns will be included as features: {', '.join(other_cols[:3])}" + 
+                       (f" and {len(other_cols)-3} more..." if len(other_cols) > 3 else ""))
+        
+        # Validation
+        required_mapped = all(col != 'None' for col in [timestamp_col, series_id_col, target_col])
+        
+        if not required_mapped:
+            st.warning("⚠️ Please map all required columns (Timestamp, Series ID, Target Variable)")
+            return
+        
+        # Show mapping summary
+        st.subheader("📝 Mapping Summary")
+        mapping_data = {
+            "Required Field": ["Timestamp", "Series ID", "Target Variable"],
+            "Your Column": [timestamp_col, series_id_col, target_col],
+            "Sample Value": [
+                str(df[timestamp_col].iloc[0]) if timestamp_col != 'None' else 'N/A',
+                str(df[series_id_col].iloc[0]) if series_id_col != 'None' else 'N/A', 
+                str(df[target_col].iloc[0]) if target_col != 'None' else 'N/A'
+            ]
+        }
+        
+        if capacity_col != 'None':
+            mapping_data["Required Field"].append("Capacity")
+            mapping_data["Your Column"].append(capacity_col)
+            mapping_data["Sample Value"].append(str(df[capacity_col].iloc[0]))
+        
+        mapping_df = pd.DataFrame(mapping_data)
+        st.dataframe(mapping_df, use_container_width=True)
         
         # Dataset name
         dataset_name = st.text_input(
@@ -63,8 +129,44 @@ def upload_dataset():
         if st.button("Upload Dataset", type="primary"):
             with st.spinner("Uploading and validating dataset..."):
                 try:
-                    files = {"file": (uploaded_file.name, uploaded_file.getvalue(), "text/csv")}
-                    data = {"name": dataset_name}
+                    # Create column mapping
+                    column_mapping = {
+                        "timestamp": timestamp_col,
+                        "series_id": series_id_col,
+                        "y": target_col
+                    }
+                    if capacity_col != 'None':
+                        column_mapping["capacity"] = capacity_col
+                    
+                    # Transform the dataframe according to mapping
+                    transformed_df = df.copy()
+                    
+                    # Rename columns according to mapping
+                    rename_dict = {v: k for k, v in column_mapping.items() if v != 'None'}
+                    transformed_df = transformed_df.rename(columns=rename_dict)
+                    
+                    # Keep only mapped columns plus any additional features
+                    required_cols = ['timestamp', 'series_id', 'y']
+                    optional_cols = ['capacity'] if capacity_col != 'None' else []
+                    
+                    # Include other columns as features (limit to avoid too many)
+                    other_feature_cols = [col for col in df.columns 
+                                        if col not in [timestamp_col, series_id_col, target_col, capacity_col]
+                                        and col != 'None'][:5]  # Limit to 5 additional features
+                    
+                    final_cols = required_cols + optional_cols + other_feature_cols
+                    available_cols = [col for col in final_cols if col in transformed_df.columns]
+                    transformed_df = transformed_df[available_cols]
+                    
+                    # Convert to CSV bytes for upload
+                    csv_buffer = transformed_df.to_csv(index=False)
+                    csv_bytes = csv_buffer.encode('utf-8')
+                    
+                    files = {"file": (f"mapped_{uploaded_file.name}", csv_bytes, "text/csv")}
+                    data = {
+                        "name": dataset_name,
+                        "column_mapping": json.dumps(column_mapping)
+                    }
                     
                     response = requests.post(
                         f"{API_BASE_URL}/datasets/upload",
@@ -74,20 +176,26 @@ def upload_dataset():
                     
                     if response.status_code == 200:
                         result = response.json()
-                        st.success(f"✅ Dataset '{dataset_name}' uploaded successfully!")
+                        st.success(f"✅ Dataset '{dataset_name}' uploaded successfully with column mapping!")
                         
                         # Show validation results
-                        st.subheader("Validation Results")
+                        st.subheader("✅ Upload Summary")
                         col1, col2 = st.columns(2)
                         with col1:
                             st.metric("Series Count", result['n_series'])
                             st.metric("Total Observations", result['n_observations'])
                         with col2:
-                            st.json(result['schema'])
+                            st.markdown("**Applied Mapping:**")
+                            for field, col in column_mapping.items():
+                                if col != 'None':
+                                    st.write(f"• {field}: `{col}`")
                         
                         # Store dataset ID in session state
                         st.session_state.dataset_id = result['id']
                         st.session_state.dataset_name = result['name']
+                        st.session_state.column_mapping = column_mapping
+                        
+                        st.info("🎯 Ready for backtesting! Go to the 'Run Backtest' tab to continue.")
                         
                     else:
                         st.error(f"❌ Upload failed: {response.json().get('detail', 'Unknown error')}")
