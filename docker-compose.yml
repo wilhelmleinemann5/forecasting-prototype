@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  forecasting-app:
+    build: .
+    ports:
+      - "8000:8000"  # FastAPI backend
+      - "8501:8501"  # Streamlit frontend
+    volumes:
+      - ./uploads:/app/uploads
+      - ./forecasting.db:/app/forecasting.db
+    environment:
+      - PYTHONPATH=/app
