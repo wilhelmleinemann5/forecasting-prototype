@@ -33,11 +33,129 @@ os.makedirs("uploads", exist_ok=True)
 
 @app.get("/")
 async def root():
-    return {"message": "Forecasting Prototype API", "version": "1.0.0", "frontend": "Access the Streamlit frontend at the same URL"}
+    """Serve a simple HTML frontend with links to API docs and features"""
+    html_content = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>📈 Forecasting Prototype</title>
+        <style>
+            body { 
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                max-width: 800px; margin: 0 auto; padding: 2rem; 
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white; min-height: 100vh;
+            }
+            .container { 
+                background: rgba(255,255,255,0.1); 
+                padding: 2rem; border-radius: 20px; 
+                backdrop-filter: blur(10px);
+                box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            }
+            h1 { font-size: 2.5rem; margin-bottom: 1rem; text-align: center; }
+            .subtitle { text-align: center; font-size: 1.2rem; margin-bottom: 2rem; opacity: 0.9; }
+            .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin: 2rem 0; }
+            .feature { 
+                background: rgba(255,255,255,0.1); 
+                padding: 1.5rem; border-radius: 15px; 
+                border: 1px solid rgba(255,255,255,0.2);
+            }
+            .feature h3 { margin: 0 0 1rem 0; font-size: 1.3rem; }
+            .feature p { margin: 0; opacity: 0.9; }
+            .api-links { text-align: center; margin-top: 2rem; }
+            .api-links a { 
+                display: inline-block; 
+                background: rgba(255,255,255,0.2); 
+                color: white; text-decoration: none; 
+                padding: 1rem 2rem; margin: 0.5rem; 
+                border-radius: 10px; 
+                border: 1px solid rgba(255,255,255,0.3);
+                transition: all 0.3s ease;
+            }
+            .api-links a:hover { 
+                background: rgba(255,255,255,0.3); 
+                transform: translateY(-2px);
+                box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            }
+            .status { 
+                text-align: center; 
+                background: rgba(0,255,0,0.2); 
+                padding: 1rem; 
+                border-radius: 10px; 
+                margin-top: 2rem;
+                border: 1px solid rgba(0,255,0,0.3);
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>📈 Forecasting Prototype</h1>
+            <p class="subtitle">A thin wrapper around StatsForecast for business-focused forecasting</p>
+            
+            <div class="status">
+                ✅ <strong>API Status:</strong> Online and Ready
+            </div>
+            
+            <div class="features">
+                <div class="feature">
+                    <h3>🔄 Data Upload</h3>
+                    <p>Upload CSV datasets with flexible column mapping and automatic validation</p>
+                </div>
+                <div class="feature">
+                    <h3>🧪 Model Backtesting</h3>
+                    <p>Run cross-validation with AutoARIMA, ETS, and Theta models</p>
+                </div>
+                <div class="feature">
+                    <h3>📊 Forecast Generation</h3>
+                    <p>Generate forecasts with confidence intervals and uncertainty bands</p>
+                </div>
+                <div class="feature">
+                    <h3>🚨 Alert System</h3>
+                    <p>Configure capacity breach alerts and monitoring</p>
+                </div>
+                <div class="feature">
+                    <h3>📈 Enhanced Visualization</h3>
+                    <p>Time series plots with actual values, forecasts, and uncertainty intervals</p>
+                </div>
+                <div class="feature">
+                    <h3>🎯 Series Analysis</h3>
+                    <p>Individual series selection and detailed forecast statistics</p>
+                </div>
+            </div>
+            
+            <div class="api-links">
+                <a href="/docs" target="_blank">📚 API Documentation</a>
+                <a href="/health">🔍 Health Check</a>
+                <a href="/datasets">📋 View Datasets</a>
+            </div>
+            
+            <div style="text-align: center; margin-top: 2rem; opacity: 0.7;">
+                <p>Built with StatsForecast + FastAPI + Streamlit</p>
+                <p><strong>Version:</strong> 1.0.0 with Enhanced Visualization</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content=html_content)
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "service": "forecasting-api"}
+    return {
+        "status": "healthy", 
+        "service": "forecasting-api",
+        "version": "1.0.0",
+        "features": [
+            "Enhanced time series visualization",
+            "Interactive forecast charts",
+            "Confidence intervals and uncertainty bands",
+            "Multi-model backtesting",
+            "Flexible data upload"
+        ]
+    }
 
 @app.post("/datasets/upload", response_model=schemas.DatasetResponse)
 async def upload_dataset(
