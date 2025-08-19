@@ -5,9 +5,10 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
 import json
+import os
 
 # Configuration
-API_BASE_URL = "http://localhost:8000"
+API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000")
 
 st.set_page_config(
     page_title="Forecasting Prototype",
@@ -306,6 +307,26 @@ def generate_forecast():
     
     st.info(f"Using model: **{st.session_state.backtest_result['winner_model']}** (WAPE: {st.session_state.backtest_result['wape']:.3f})")
     
+    # Series selection for visualization
+    if 'dataset_id' in st.session_state:
+        st.subheader("🎯 Select Series for Visualization")
+        
+        # Get available series from dataset
+        try:
+            response = requests.get(f"{API_BASE_URL}/datasets/{st.session_state.dataset_id}/series")
+            if response.status_code == 200:
+                series_list = response.json().get('series', [])
+                if series_list:
+                    selected_series = st.selectbox(
+                        "Choose a series to visualize:",
+                        options=series_list,
+                        help="Select a time series to see detailed forecast visualization"
+                    )
+                    st.session_state.selected_series = selected_series
+        except:
+            # Fallback if endpoint doesn't exist
+            pass
+    
     if st.button("Generate Forecasts", type="primary"):
         with st.spinner("Generating forecasts..."):
             try:
@@ -322,8 +343,9 @@ def generate_forecast():
                     result = response.json()
                     st.success("✅ Forecasts generated!")
                     
-                    # Store forecast ID
+                    # Store forecast ID and results
                     st.session_state.forecast_id = result['forecast_id']
+                    st.session_state.forecast_results = result['forecasts']
                     
                     # Display forecast info
                     col1, col2, col3 = st.columns(3)
@@ -334,43 +356,232 @@ def generate_forecast():
                     with col3:
                         st.metric("Horizon", result['horizon'])
                     
-                    # Show sample forecasts
+                    # Enhanced forecast visualization
                     if result['forecasts']:
-                        st.subheader("Sample Forecasts")
-                        forecasts_df = pd.DataFrame(result['forecasts'][:20])  # Show first 20
-                        st.dataframe(forecasts_df)
-                        
-                        # Simple forecast plot for first series
-                        if 'unique_id' in forecasts_df.columns:
-                            first_series = forecasts_df['unique_id'].iloc[0]
-                            series_data = forecasts_df[forecasts_df['unique_id'] == first_series]
-                            
-                            if len(series_data) > 0:
-                                fig = go.Figure()
-                                
-                                # Add forecast line
-                                if 'AutoARIMA' in series_data.columns:
-                                    fig.add_trace(go.Scatter(
-                                        x=series_data['ds'],
-                                        y=series_data['AutoARIMA'],
-                                        mode='lines+markers',
-                                        name='Forecast',
-                                        line=dict(color='blue')
-                                    ))
-                                
-                                fig.update_layout(
-                                    title=f"Forecast for Series: {first_series}",
-                                    xaxis_title="Date",
-                                    yaxis_title="Value"
-                                )
-                                
-                                st.plotly_chart(fig, use_container_width=True)
+                        create_forecast_visualization(result['forecasts'])
                     
                 else:
                     st.error(f"❌ Forecast generation failed: {response.json().get('detail', 'Unknown error')}")
                     
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
+
+def create_forecast_visualization(forecasts_data):
+    """Create enhanced time series visualization with actual values, forecast, and uncertainty bands"""
+    st.subheader("📈 Time Series Forecast Visualization")
+    
+    # Convert to DataFrame
+    forecasts_df = pd.DataFrame(forecasts_data)
+    
+    if forecasts_df.empty:
+        st.warning("No forecast data available for visualization")
+        return
+    
+    # Get unique series for selection
+    unique_series = forecasts_df['unique_id'].unique() if 'unique_id' in forecasts_df.columns else []
+    
+    if len(unique_series) == 0:
+        st.warning("No series found in forecast data")
+        return
+    
+    # Series selector
+    selected_series = st.selectbox(
+        "Select Series to Visualize:",
+        options=unique_series,
+        key="forecast_series_selector"
+    )
+    
+    # Filter data for selected series
+    series_forecasts = forecasts_df[forecasts_df['unique_id'] == selected_series].copy()
+    
+    if len(series_forecasts) == 0:
+        st.warning(f"No forecast data found for series: {selected_series}")
+        return
+    
+    # Convert date column to datetime
+    if 'ds' in series_forecasts.columns:
+        series_forecasts['ds'] = pd.to_datetime(series_forecasts['ds'])
+        series_forecasts = series_forecasts.sort_values('ds')
+    
+    # Get historical data for comparison
+    historical_data = get_historical_data_for_series(selected_series)
+    
+    # Create the plot
+    fig = go.Figure()
+    
+    # Add historical data (actual values) if available
+    if historical_data is not None and not historical_data.empty:
+        fig.add_trace(go.Scatter(
+            x=historical_data['ds'],
+            y=historical_data['y'],
+            mode='lines+markers',
+            name='Historical Data',
+            line=dict(color='#2E86C1', width=2),
+            marker=dict(size=4),
+            hovertemplate='<b>Historical</b><br>Date: %{x}<br>Value: %{y:.2f}<extra></extra>'
+        ))
+    
+    # Determine which model to use for visualization
+    winner_model = st.session_state.backtest_result['winner_model']
+    forecast_col = None
+    upper_col = None
+    lower_col = None
+    
+    # Find the appropriate columns for the winner model
+    for col in series_forecasts.columns:
+        if col == winner_model:
+            forecast_col = col
+        elif col == f"{winner_model}-hi-90":
+            upper_col = col
+        elif col == f"{winner_model}-lo-90":
+            lower_col = col
+    
+    # Add uncertainty band (shaded area)
+    if upper_col and lower_col and upper_col in series_forecasts.columns and lower_col in series_forecasts.columns:
+        fig.add_trace(go.Scatter(
+            x=series_forecasts['ds'],
+            y=series_forecasts[upper_col],
+            fill=None,
+            mode='lines',
+            line_color='rgba(0,100,80,0)',
+            showlegend=False,
+            hoverinfo='skip'
+        ))
+        
+        fig.add_trace(go.Scatter(
+            x=series_forecasts['ds'],
+            y=series_forecasts[lower_col],
+            fill='tonexty',
+            mode='lines',
+            line_color='rgba(0,100,80,0)',
+            name='90% Confidence Interval',
+            fillcolor='rgba(68, 114, 196, 0.2)',
+            hovertemplate='<b>90% CI</b><br>Date: %{x}<br>Lower: %{y:.2f}<extra></extra>'
+        ))
+    
+    # Add forecast line
+    if forecast_col and forecast_col in series_forecasts.columns:
+        fig.add_trace(go.Scatter(
+            x=series_forecasts['ds'],
+            y=series_forecasts[forecast_col],
+            mode='lines+markers',
+            name=f'{winner_model} Forecast',
+            line=dict(color='#E74C3C', width=3, dash='solid'),
+            marker=dict(size=6, symbol='circle'),
+            hovertemplate=f'<b>{winner_model} Forecast</b><br>Date: %{{x}}<br>Value: %{{y:.2f}}<extra></extra>'
+        ))
+    
+    # Update layout
+    fig.update_layout(
+        title=dict(
+            text=f"Time Series Forecast: {selected_series}",
+            x=0.5,
+            font=dict(size=18, color='#2C3E50')
+        ),
+        xaxis=dict(
+            title="Date",
+            showgrid=True,
+            gridcolor='rgba(128,128,128,0.2)',
+            title_font=dict(size=14)
+        ),
+        yaxis=dict(
+            title="Value",
+            showgrid=True,
+            gridcolor='rgba(128,128,128,0.2)',
+            title_font=dict(size=14)
+        ),
+        hovermode='x unified',
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        ),
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        margin=dict(t=80, b=60, l=60, r=60),
+        height=500
+    )
+    
+    # Add vertical line to separate historical from forecast
+    if historical_data is not None and not historical_data.empty:
+        last_historical_date = historical_data['ds'].max()
+        fig.add_vline(
+            x=last_historical_date,
+            line_dash="dash",
+            line_color="gray",
+            annotation_text="Forecast Start",
+            annotation_position="top"
+        )
+    
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Display forecast statistics
+    col1, col2, col3 = st.columns(3)
+    
+    if forecast_col and forecast_col in series_forecasts.columns:
+        forecast_values = series_forecasts[forecast_col].dropna()
+        
+        with col1:
+            st.metric(
+                "Average Forecast", 
+                f"{forecast_values.mean():.2f}",
+                help="Mean forecasted value over the horizon"
+            )
+        
+        with col2:
+            st.metric(
+                "Max Forecast", 
+                f"{forecast_values.max():.2f}",
+                help="Maximum forecasted value"
+            )
+        
+        with col3:
+            if upper_col and lower_col:
+                avg_uncertainty = (series_forecasts[upper_col] - series_forecasts[lower_col]).mean()
+                st.metric(
+                    "Avg Uncertainty", 
+                    f"±{avg_uncertainty/2:.2f}",
+                    help="Average width of 90% confidence interval"
+                )
+    
+    # Show detailed forecast table
+    with st.expander("📋 Detailed Forecast Data"):
+        display_cols = ['ds']
+        if forecast_col:
+            display_cols.append(forecast_col)
+        if lower_col:
+            display_cols.append(lower_col)
+        if upper_col:
+            display_cols.append(upper_col)
+        
+        display_data = series_forecasts[display_cols].copy()
+        display_data.columns = ['Date', 'Forecast', 'Lower 90%', 'Upper 90%'][:len(display_cols)]
+        st.dataframe(display_data, use_container_width=True)
+
+def get_historical_data_for_series(series_id):
+    """Get historical data for a specific series to show alongside forecast"""
+    try:
+        if 'dataset_id' not in st.session_state:
+            return None
+            
+        response = requests.get(
+            f"{API_BASE_URL}/datasets/{st.session_state.dataset_id}/series/{series_id}/history"
+        )
+        
+        if response.status_code == 200:
+            historical_data = pd.DataFrame(response.json())
+            if 'ds' in historical_data.columns:
+                historical_data['ds'] = pd.to_datetime(historical_data['ds'])
+            return historical_data
+        else:
+            # Fallback: try to get data from session state or return None
+            return None
+            
+    except Exception as e:
+        st.warning(f"Could not load historical data: {str(e)}")
+        return None
 
 def configure_alerts():
     st.header("🚨 Configure Alerts")

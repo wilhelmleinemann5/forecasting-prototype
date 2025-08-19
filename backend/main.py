@@ -106,6 +106,60 @@ async def list_datasets(db: Session = Depends(get_db)):
         for d in datasets
     ]
 
+@app.get("/datasets/{dataset_id}/series")
+async def get_dataset_series(dataset_id: int, db: Session = Depends(get_db)):
+    """Get list of unique series IDs in a dataset"""
+    dataset = db.query(models.Dataset).filter(models.Dataset.id == dataset_id).first()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    
+    file_path = f"uploads/{dataset.filename}"
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Dataset file not found")
+    
+    try:
+        df = pd.read_csv(file_path)
+        series_list = df['series_id'].unique().tolist() if 'series_id' in df.columns else []
+        return {"series": series_list}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error reading dataset: {str(e)}")
+
+@app.get("/datasets/{dataset_id}/series/{series_id}/history")
+async def get_series_history(dataset_id: int, series_id: str, db: Session = Depends(get_db)):
+    """Get historical data for a specific series"""
+    dataset = db.query(models.Dataset).filter(models.Dataset.id == dataset_id).first()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    
+    file_path = f"uploads/{dataset.filename}"
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Dataset file not found")
+    
+    try:
+        df = pd.read_csv(file_path)
+        
+        # Filter for the specific series
+        if 'series_id' not in df.columns:
+            raise HTTPException(status_code=400, detail="series_id column not found")
+        
+        series_data = df[df['series_id'] == series_id].copy()
+        
+        if len(series_data) == 0:
+            raise HTTPException(status_code=404, detail=f"No data found for series: {series_id}")
+        
+        # Prepare data in the format expected by StatsForecast
+        series_data['timestamp'] = pd.to_datetime(series_data['timestamp'])
+        series_data = series_data.rename(columns={'timestamp': 'ds', 'series_id': 'unique_id'})
+        series_data = series_data.sort_values('ds')
+        
+        # Return the last 60 data points to avoid huge responses
+        series_data = series_data.tail(60)
+        
+        return series_data[['ds', 'unique_id', 'y']].to_dict('records')
+        
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error reading series data: {str(e)}")
+
 @app.post("/models/backtest", response_model=schemas.BacktestResult)
 async def run_backtest(
     request: schemas.BacktestRequest,

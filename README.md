@@ -1,5 +1,7 @@
 # Forecasting Prototype
 
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/template/forecasting-prototype)
+
 A thin wrapper around StatsForecast for business-focused forecasting and decision-making.
 
 ## 🚀 Quick Start

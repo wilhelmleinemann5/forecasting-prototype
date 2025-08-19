@@ -152,8 +152,8 @@ class ForecastingEngine:
         return metrics
     
     def generate_forecast(self, df: pd.DataFrame, models: List[str], 
-                         horizon: int = 14) -> pd.DataFrame:
-        """Generate forecasts using the best model"""
+                         horizon: int = 14, confidence_levels: List[int] = [80, 90]) -> pd.DataFrame:
+        """Generate forecasts using the best model with confidence intervals"""
         
         # Prepare data
         df_clean = self.prepare_data(df)
@@ -168,8 +168,8 @@ class ForecastingEngine:
             n_jobs=1
         )
         
-        # Fit and forecast
-        forecasts = sf.forecast(df=df_clean, h=horizon, level=[90])
+        # Fit and forecast with multiple confidence levels
+        forecasts = sf.forecast(df=df_clean, h=horizon, level=confidence_levels)
         
         return forecasts
     
