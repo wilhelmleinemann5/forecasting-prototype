@@ -4,7 +4,7 @@ dockerfilePath = "Dockerfile.railway"
 
 [deploy]
 startCommand = "python main.py"
-healthcheckPath = "/"
+healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
 

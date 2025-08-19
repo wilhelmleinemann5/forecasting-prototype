@@ -33,7 +33,11 @@ os.makedirs("uploads", exist_ok=True)
 
 @app.get("/")
 async def root():
-    return {"message": "Forecasting Prototype API", "version": "1.0.0"}
+    return {"message": "Forecasting Prototype API", "version": "1.0.0", "frontend": "Access the Streamlit frontend at the same URL"}
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "service": "forecasting-api"}
 
 @app.post("/datasets/upload", response_model=schemas.DatasetResponse)
 async def upload_dataset(
